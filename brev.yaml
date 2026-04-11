@@ -1,0 +1,30 @@
+# Brev.dev instance configuration
+# Run: brev open mission-data-grid
+name: mission-data-grid
+instance_type: g5.2xlarge   # NVIDIA A10G 24GB — swap to a100/h100 for production
+cuda_version: "12.3"
+os: ubuntu22.04
+ports:
+  - 8888   # Jupyter
+  - 8080   # Dashboard
+  - 9092   # Kafka
+  - 6379   # Redis
+  - 8000   # VSS Agent API
+  - 8001   # Cosmos Predict API
+startup_script: |
+  #!/bin/bash
+  set -e
+  # Install NVIDIA Container Toolkit
+  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
+  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | \
+    sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | \
+    sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
+  sudo apt-get update && sudo apt-get install -y nvidia-container-toolkit docker-compose-plugin
+  sudo nvidia-ctk runtime configure --runtime=docker
+  sudo systemctl restart docker
+  # Clone and launch
+  git clone https://github.com/YOUR_ORG/mission-data-grid /workspace/mission-data-grid
+  cd /workspace/mission-data-grid
+  cp .env.example .env
+  docker compose up -d
+  echo "✅ Mission Data Grid is live. Dashboard: http://localhost:8080"

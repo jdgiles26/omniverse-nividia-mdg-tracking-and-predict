@@ -1,0 +1,46 @@
+# ─── BASE ─────────────────────────────────────────────────────────
+FROM --platform=linux/amd64 nvcr.io/nvidia/deepstream:8.0-gc-triton-devel AS base
+
+ENV DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y \
+    python3-pip python3-dev python3-gi python3-gi-cairo \
+    gir1.2-gstreamer-1.0 libgstreamer1.0-dev \
+    libgstreamer-plugins-base1.0-dev \
+    libgstreamer-plugins-good1.0-dev libgirepository1.0-dev gcc python3-gst-1.0 \
+    portaudio19-dev libsndfile1 ffmpeg libopencv-dev \
+    curl wget git vim htop && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt /tmp/requirements.txt
+RUN pip3 install --no-cache-dir -r /tmp/requirements.txt
+
+# ─── VSS TARGET ──────────────────────────────────────────────────────
+FROM base AS vss
+WORKDIR /workspace
+COPY cap2_vss_agent/ .
+EXPOSE 8000
+
+# ─── COSMOS TARGET ───────────────────────────────────────────────────
+FROM base AS cosmos
+WORKDIR /workspace
+COPY cap3_cosmos_prediction/ .
+EXPOSE 8001
+
+# ─── FUSION TARGET ───────────────────────────────────────────────────
+FROM base AS fusion
+WORKDIR /workspace
+COPY cap6_multimodal_fusion/ .
+
+# ─── GRID TARGET ─────────────────────────────────────────────────────
+FROM base AS grid
+WORKDIR /workspace
+COPY cap7_mission_data_grid/ .
+EXPOSE 8002
+
+# ─── JUPYTER TARGET ──────────────────────────────────────────────────
+FROM base AS jupyter
+RUN pip3 install --no-cache-dir jupyterlab ipywidgets ipython
+COPY notebooks/ /notebooks
+COPY . /workspace
+WORKDIR /workspace
+EXPOSE 8888

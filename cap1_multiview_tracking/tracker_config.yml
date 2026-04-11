@@ -1,0 +1,27 @@
+%YAML:1.0
+################################################################################
+# NvMultiObjectTracker (MV3DT) Config
+################################################################################
+NvMultiObjectTrackerLib:
+  maxTargetsPerStream: 150
+  enableBatchProcessing: 1
+
+NvDCF:
+  useHog: 1
+  useColorNames: 1
+  useGray: 1
+  filterLr: 0.075
+  filterChannelWeightsLr: 0.1
+  gaussianSigma: 0.75
+
+TargetManagement:
+  enableOCR: 0
+  minDetectorConfidence: 0.2
+  minTrackerConfidence: 0.5
+  minMatchingScore4NewTarget: 0.5
+  maxShadowTrackingAge: 30
+
+ReID:
+  reidFeatureSize: 128
+  useReidFeature: 1
+  reidHistorySize: 5

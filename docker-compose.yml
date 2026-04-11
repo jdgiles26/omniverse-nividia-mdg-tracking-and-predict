@@ -1,0 +1,220 @@
+services:
+
+  # ─── Infrastructure ────────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: mission-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server", "localhost:9092", "--list"]
+      interval: 10s
+      retries: 5
+    networks:
+      - mission_net
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: mission-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
+    networks:
+      - mission_net
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: mission-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_DB: mission_grid
+      POSTGRES_USER: mission
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mission_secret}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - mission_net
+
+  # ─── CAP 1: Multi-View DeepStream Pipeline ─────────────────────────
+  deepstream-pipeline:
+    image: nvcr.io/nvidia/deepstream:8.0-gc-triton-devel
+    container_name: mission-deepstream
+    profiles: ["gpu"]
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_DRIVER_CAPABILITIES=all
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - VIDEO_SOURCES=${VIDEO_SOURCES:-webcam}
+    volumes:
+      - ./cap1_multiview_tracking:/workspace
+      - ./models:/models
+      - /tmp/.X11-unix:/tmp/.X11-unix
+      - video_uploads:/uploads
+    working_dir: /workspace
+    command: python3 mv3dt_pipeline.py
+    depends_on:
+      kafka:
+        condition: service_healthy
+    networks:
+      - mission_net
+
+  # ─── CAP 2: VSS Agent ──────────────────────────────────────────────
+  vss-agent:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+      target: vss
+    container_name: mission-vss
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://mission:${POSTGRES_PASSWORD:-mission_secret}@postgres:5432/mission_grid
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./cap2_vss_agent:/workspace
+      - video_uploads:/uploads
+    command: uvicorn vss_agent:app --host 0.0.0.0 --port 8000 --reload
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+    networks:
+      - mission_net
+
+  # ─── CAP 3: Cosmos Prediction ──────────────────────────────────────
+  cosmos-predictor:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+      target: cosmos
+    container_name: mission-cosmos
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - REDIS_URL=redis://redis:6379
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./cap3_cosmos_prediction:/workspace
+    command: uvicorn cosmos_predict:app --host 0.0.0.0 --port 8001 --reload
+    depends_on:
+      - kafka
+      - redis
+    networks:
+      - mission_net
+
+  # ─── CAP 6: Multimodal Fusion ─────────────────────────────────────
+  fusion-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+      target: fusion
+    container_name: mission-fusion
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - REDIS_URL=redis://redis:6379
+    volumes:
+      - ./cap6_multimodal_fusion:/workspace
+    command: python3 fusion_engine.py
+    depends_on:
+      - kafka
+      - redis
+    networks:
+      - mission_net
+
+  # ─── CAP 7: Mission Data Grid ─────────────────────────────────────
+  mission-grid:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+      target: grid
+    container_name: mission-grid
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - REDIS_URL=redis://redis:6379
+      - POSTGRES_URL=postgresql://mission:${POSTGRES_PASSWORD:-mission_secret}@postgres:5432/mission_grid
+      - COSMOS_API_URL=http://cosmos-predictor:8001
+      - VSS_API_URL=http://vss-agent:8000
+      - DASHBOARD_WS_URL=ws://dashboard:8080/ws
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./cap7_mission_data_grid:/workspace
+    command: uvicorn mission_grid:app --host 0.0.0.0 --port 8002 --reload
+    depends_on:
+      - kafka
+      - redis
+      - postgres
+    networks:
+      - mission_net
+
+  # ─── Dashboard ────────────────────────────────────────────────────
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    container_name: mission-dashboard
+    environment:
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - REDIS_URL=redis://redis:6379
+      - GRID_API_URL=http://mission-grid:8002
+      - VSS_API_URL=http://vss-agent:8000
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./dashboard:/workspace
+      - video_uploads:/uploads
+    command: uvicorn app:app --host 0.0.0.0 --port 8080 --reload
+    networks:
+      - mission_net
+
+  # ─── Jupyter (Brev Dev Notebook) ─────────────────────────────────
+  jupyter:
+    build:
+      context: .
+      dockerfile: Dockerfile.pipeline
+      target: jupyter
+    container_name: mission-jupyter
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - KAFKA_BOOTSTRAP=kafka:9092
+      - NVIDIA_API_KEY=${NVIDIA_API_KEY}
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/notebooks
+      - ./:/workspace
+      - video_uploads:/uploads
+    command: jupyter lab --ip=0.0.0.0 --port=8888 --allow-root --no-browser --ServerApp.token=''
+    networks:
+      - mission_net
+
+volumes:
+  redis_data:
+  postgres_data:
+  video_uploads:
+
+networks:
+  mission_net:
+    driver: bridge

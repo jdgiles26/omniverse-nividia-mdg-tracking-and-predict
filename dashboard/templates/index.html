@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>🛡️ Mission Data Grid — Live Intelligence</title>
+<style>
+  :root {
+    --bg: #0a0e1a; --panel: #0f1629; --border: #1e2d4a;
+    --green: #00ff88; --red: #ff3366; --yellow: #ffd700;
+    --blue: #00aaff; --text: #e0e8ff; --dim: #6b7a9a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font-family: 'Courier New', monospace; }
+  header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 12px 24px; display: flex; justify-content: space-between; align-items: center;
+  }
+  header h1 { color: var(--green); font-size: 1.1rem; letter-spacing: 2px; }
+  #grid-status { display: flex; gap: 20px; font-size: 0.75rem; }
+  .stat-chip { background: var(--border); padding: 4px 12px; border-radius: 12px; }
+  .stat-chip span { color: var(--blue); font-weight: bold; }
+  .main-grid { display: grid; grid-template-columns: 2fr 1fr; gap: 1px; height: calc(100vh - 56px); }
+  .left-panel { display: grid; grid-template-rows: 1fr 1fr; gap: 1px; }
+  .video-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; background: var(--bg); padding: 8px; }
+  .cam-feed {
+    background: #000; border: 1px solid var(--border); border-radius: 4px;
+    aspect-ratio: 16/9; position: relative; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .cam-label {
+    position: absolute; top: 8px; left: 8px; background: rgba(0,0,0,0.7);
+    padding: 2px 8px; border-radius: 4px; font-size: 0.65rem; color: var(--blue);
+  }
+  .cam-status { position: absolute; top: 8px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .detection-overlay {
+    position: absolute; bottom: 8px; left: 8px; right: 8px;
+    font-size: 0.6rem; color: var(--green);
+  }
+  .intel-panel { background: var(--panel); padding: 12px; overflow-y: auto; border-top: 1px solid var(--border); }
+  .intel-panel h3 { color: var(--blue); font-size: 0.75rem; margin-bottom: 8px; letter-spacing: 1px; }
+  .right-panel { background: var(--panel); border-left: 1px solid var(--border); display: flex; flex-direction: column; }
+  .alerts-section { flex: 1; overflow-y: auto; padding: 12px; }
+  .alerts-section h3 { color: var(--red); font-size: 0.75rem; margin-bottom: 8px; letter-spacing: 1px; }
+  .alert-card {
+    background: var(--bg); border-left: 3px solid var(--dim);
+    padding: 8px; margin-bottom: 6px; border-radius: 2px; font-size: 0.7rem;
+    animation: fadeIn 0.3s ease;
+  }
+  .alert-card.CRITICAL { border-color: var(--red); }
+  .alert-card.HIGH { border-color: var(--yellow); }
+  .alert-card.MEDIUM { border-color: var(--blue); }
+  .alert-card.LOW { border-color: var(--dim); }
+  .priority-badge {
+    display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 0.6rem; font-weight: bold;
+  }
+  .priority-badge.CRITICAL { background: var(--red); color: #000; }
+  .priority-badge.HIGH { background: var(--yellow); color: #000; }
+  .priority-badge.MEDIUM { background: var(--blue); color: #000; }
+  .search-section { padding: 12px; border-top: 1px solid var(--border); }
+  .search-section h3 { color: var(--green); font-size: 0.75rem; margin-bottom: 8px; }
+  .search-bar { display: flex; gap: 6px; }
+  .search-bar input {
+    flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 4px;
+    color: var(--text); padding: 6px 10px; font-size: 0.75rem; font-family: inherit;
+  }
+  .search-bar button {
+    background: var(--blue); color: #000; border: none; border-radius: 4px;
+    padding: 6px 14px; cursor: pointer; font-size: 0.75rem; font-weight: bold;
+  }
+  #search-results { margin-top: 8px; font-size: 0.65rem; max-height: 150px; overflow-y: auto; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; } }
+  .blink { animation: blink 1s step-start infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  .conn-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--dim); margin-right: 4px; }
+  .conn-dot.live { background: var(--green); }
+</style>
+</head>
+<body>
+<header>
+  <h1>🛡️ MISSION DATA GRID — LIVE INTELLIGENCE</h1>
+  <div id="grid-status">
+    <div class="stat-chip">Events: <span id="stat-events">0</span></div>
+    <div class="stat-chip">Alerts: <span id="stat-alerts">0</span></div>
+    <div class="stat-chip">Connections: <span id="stat-conns">0</span></div>
+    <div class="stat-chip"><span class="conn-dot" id="ws-dot"></span><span id="ws-status">Connecting...</span></div>
+  </div>
+</header>
+
+<div class="main-grid">
+  <div class="left-panel">
+    <div class="video-grid" id="camera-grid">
+      <!-- Camera feeds injected here -->
+      <div class="cam-feed" id="cam-0">
+        <div class="cam-label">CAM 0 — WEBCAM</div>
+        <div class="cam-status blink"></div>
+        <img id="cam0-img" style="width:100%;height:100%;object-fit:cover" src="" alt="No Feed"/>
+        <div class="detection-overlay" id="cam0-detections">Awaiting detections...</div>
+      </div>
+      <div class="cam-feed" id="cam-1">
+        <div class="cam-label">CAM 1 — RTSP</div>
+        <div class="cam-status blink"></div>
+        <img id="cam1-img" style="width:100%;height:100%;object-fit:cover" src="" alt="No Feed"/>
+        <div class="detection-overlay" id="cam1-detections">Awaiting detections...</div>
+      </div>
+      <div class="cam-feed" id="cam-2">
+        <div class="cam-label">CAM 2 — HTTP</div>
+        <div class="cam-status"></div>
+        <div style="color:var(--dim);font-size:0.7rem">Source offline</div>
+        <div class="detection-overlay" id="cam2-detections"></div>
+      </div>
+      <div class="cam-feed" id="cam-3">
+        <div class="cam-label">CAM 3 — UPLOAD</div>
+        <div class="cam-status"></div>
+        <div style="color:var(--dim);font-size:0.7rem">No upload</div>
+        <div class="detection-overlay" id="cam3-detections"></div>
+      </div>
+    </div>
+    <div class="intel-panel">
+      <h3>📋 MISSION INTEL BRIEF</h3>
+      <div id="intel-content" style="font-size:0.7rem;line-height:1.6;color:var(--dim)">
+        Awaiting mission events...
+      </div>
+    </div>
+  </div>
+
+  <div class="right-panel">
+    <div class="alerts-section">
+      <h3>🚨 ALERTS & PRIORITIES <span id="alert-count" style="color:var(--dim)">(0)</span></h3>
+      <div id="alerts-container"></div>
+    </div>
+    <div class="search-section">
+      <h3>🔍 VIDEO SEARCH & QUERY</h3>
+      <div class="search-bar">
+        <input type="text" id="search-input" placeholder="e.g. 'person near entrance last 30 min'" />
+        <button onclick="runSearch()">SEARCH</button>
+      </div>
+      <div id="search-results"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const GRID_API = "{{ grid_api }}";
+const VSS_API = "{{ vss_api }}";
+let alertCount = 0;
+let ws;
+
+function connectWebSocket() {
+  const wsUrl = GRID_API.replace("http://", "ws://").replace("https://", "wss://") + "/ws";
+  ws = new WebSocket(wsUrl);
+  
+  ws.onopen = () => {
+    document.getElementById("ws-dot").classList.add("live");
+    document.getElementById("ws-status").textContent = "LIVE";
+  };
+  
+  ws.onclose = () => {
+    document.getElementById("ws-dot").classList.remove("live");
+    document.getElementById("ws-status").textContent = "Reconnecting...";
+    setTimeout(connectWebSocket, 3000);
+  };
+  
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === "MISSION_EVENT") handleMissionEvent(msg);
+    if (msg.type === "QUERY_RESPONSE") handleQueryResponse(msg.result);
+  };
+}
+
+function handleMissionEvent(msg) {
+  const event = msg.event || {};
+  const priority = msg.priority || "LOW";
+  const video = (event.modalities || {}).video || {};
+  const camId = video.camera_id || 0;
+  const label = video.label || "unknown";
+  const conf = event.fused_confidence || 0;
+  const indicators = event.threat_indicators || [];
+  const prediction = msg.prediction || {};
+
+  // Update camera overlay
+  const detDiv = document.getElementById(`cam${camId}-detections`);
+  if (detDiv) {
+    const color = priority === "CRITICAL" ? "#ff3366" :
+                  priority === "HIGH" ? "#ffd700" :
+                  priority === "MEDIUM" ? "#00aaff" : "#00ff88";
+    detDiv.innerHTML = `<span style="color:${color}">▶ ${label.toUpperCase()} | conf:${(conf*100).toFixed(0)}% | ${priority}</span>`;
+    if (indicators.length) {
+      detDiv.innerHTML += `<br><span style="color:#6b7a9a">⚠ ${indicators.join(" · ")}</span>`;
+    }
+  }
+
+  // Add alert card
+  if (["CRITICAL","HIGH","MEDIUM"].includes(priority)) {
+    alertCount++;
+    document.getElementById("alert-count").textContent = `(${alertCount})`;
+    document.getElementById("stat-alerts").textContent = alertCount;
+    
+    const card = document.createElement("div");
+    card.className = `alert-card ${priority}`;
+    const ts = new Date().toLocaleTimeString();
+    const predText = prediction.threat_level ?
+      `<br>🔮 Predict: ${prediction.threat_level}` : "";
+    const corrText = msg.related_count > 0 ?
+      `<br>🔗 Correlated: ${msg.related_count} event(s)` : "";
+    card.innerHTML = `
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span class="priority-badge ${priority}">${priority}</span>
+        <span style="color:var(--dim);font-size:0.6rem">${ts}</span>
+      </div>
+      <div style="margin-top:4px;color:var(--text)">
+        📸 CAM${camId}: <strong>${label.toUpperCase()}</strong> (${(conf*100).toFixed(0)}%)
+      </div>
+      ${indicators.length ? `<div style="color:var(--yellow)">⚠ ${indicators.join(" · ")}</div>` : ""}
+      ${predText}${corrText}
+    `;
+    const container = document.getElementById("alerts-container");
+    container.insertBefore(card, container.firstChild);
+    // Keep max 50 alerts
+    while (container.children.length > 50) container.removeChild(container.lastChild);
+  }
+
+  // Update intel brief for CRITICAL events
+  if (priority === "CRITICAL" && prediction.recommended_action) {
+    document.getElementById("intel-content").innerHTML = `
+      <strong style="color:var(--red)">⚡ CRITICAL EVENT DETECTED</strong><br>
+      Object: ${label} | Camera: ${camId} | Confidence: ${(conf*100).toFixed(0)}%<br>
+      Indicators: ${indicators.join(", ") || "none"}<br>
+      Prediction: ${prediction.threat_level || "N/A"}<br>
+      <strong>Recommended Action: ${prediction.recommended_action || "MONITOR"}</strong><br>
+      Time: ${new Date().toISOString()}
+    `;
+  }
+
+  // Update stats
+  const cur = parseInt(document.getElementById("stat-events").textContent) || 0;
+  document.getElementById("stat-events").textContent = cur + 1;
+}
+
+function handleQueryResponse(result) {
+  const div = document.getElementById("search-results");
+  div.innerHTML = `<div style="color:var(--green);margin-top:6px">${
+    (result.answer || result.brief || JSON.stringify(result, null, 2))
+      .replace(/\n/g, "<br>")
+  }</div>`;
+}
+
+async function runSearch() {
+  const query = document.getElementById("search-input").value.trim();
+  if (!query) return;
+  const div = document.getElementById("search-results");
+  div.innerHTML = '<span style="color:var(--dim)">Searching...</span>';
+  
+  if (ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({ type: "QUERY", question: query }));
+  } else {
+    try {
+      const r = await fetch(`${VSS_API}/query`, {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({ question: query })
+      });
+      const data = await r.json();
+      handleQueryResponse(data);
+    } catch(e) {
+      div.innerHTML = `<span style="color:var(--red)">Error: ${e.message}</span>`;
+    }
+  }
+}
+
+// Load stats periodically
+async function loadStats() {
+  try {
+    const r = await fetch(`${GRID_API}/stats`);
+    const data = await r.json();
+    document.getElementById("stat-events").textContent = data.grid_events || 0;
+    document.getElementById("stat-conns").textContent = data.active_dashboard_connections || 0;
+  } catch(e) {}
+}
+
+connectWebSocket();
+loadStats();
+setInterval(loadStats, 5000);
+</script>
+</body>
+</html>
