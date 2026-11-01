@@ -3,14 +3,14 @@ fastapi==0.110.0
 uvicorn[standard]==0.29.0
 websockets==12.0
 aiofiles==23.2.1
-python-multipart==0.0.9
+python-multipart==0.0.22
 pydantic==2.6.4
 pyyaml==6.0.1
 
 # Video / CV
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
-Pillow==10.3.0
+Pillow==12.1.1
 
 # NVIDIA NIM / API
 openai==1.23.3        # NVIDIA NIM uses OpenAI-compatible API
