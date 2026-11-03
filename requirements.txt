@@ -3,21 +3,21 @@ fastapi==0.110.0
 uvicorn[standard]==0.29.0
 websockets==12.0
 aiofiles==23.2.1
-python-multipart==0.0.22
+python-multipart==0.0.31
 pydantic==2.6.4
 pyyaml==6.0.1
 
 # Video / CV
 opencv-python-headless==4.9.0.80
 numpy==1.26.4
-Pillow==12.1.1
+Pillow==13.0.0
 
 # NVIDIA NIM / API
 openai==1.23.3        # NVIDIA NIM uses OpenAI-compatible API
 httpx==0.27.0
 
 # Kafka Event Bus
-kafka-python==2.3.1
+kafka-python==2.3.2
 confluent-kafka==2.4.0
 
 # Redis Correlation Store
@@ -36,7 +36,7 @@ soundfile==0.12.1
 pyaudio==0.2.14
 
 # Utilities
-python-dotenv==1.0.1
+python-dotenv==1.2.2
 loguru==0.7.2
 tenacity==8.2.3
 prometheus-client==0.20.0
